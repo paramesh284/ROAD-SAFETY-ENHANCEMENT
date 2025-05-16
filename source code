@@ -1,0 +1,141 @@
+#upload the dataset
+from google.colab import files
+file=files.upload()
+#load the dataset
+import pandas as pd
+#Read the dataset
+df = pd.read_csv('dataset.csv')
+#Data Exploration	
+#Display first few rows
+df.head()
+#shape of the dataset
+# Shape of the dataset 
+print("Shape:", df.shape)
+ # Column names
+print("Columns:", df.columns)
+# Data types and non-null values 
+df.info() 
+# Summary statistics for numeric features 
+df.describe()
+ # Check for Missing Values and Duplicates
+ # Check for missing values
+print("Missing values:\n", df.isnull().sum())
+# Check for duplicates
+#  Visualize a Few Features
+import matplotlib.pyplot as plt
+import seaborn as sns
+# Distribution of final grades
+plt.figure(figsize=(10,5))
+sns.countplot(x='Accident_severity', data=df)
+plt.tiptle("Accident Severity Count")
+plt.xticks(rotation=45)
+plt.show()
+# Relationship between study time and final grade
+plt.figure(figsize=(10,5))
+sns.histplot(data=df, x='Age_band_of_driver', hue='Accident_severity', multiple='stack')
+plt.title("Age Band vs Severity")
+plt.xticks(rotation=45)
+plt.show()
+# Identify Target and Features
+target = 'Accident_severity'
+features = df.drop(columns=[target])
+labels = df[target]
+
+#Convert Categorical Columns to Numerical 
+# Identify categorical columns
+original_df = features.copy()
+cat_cols = features.select_dtypes(include='object').columns
+cat_maps = {}
+for col in cat_cols:
+    features[col] = features[col].astype('category')
+    cat_maps[col] = dict(enumerate(features[col].cat.categories))
+    cat_maps[col] = {v: k for k, v in cat_maps[col].items()}
+ # reverse mapping
+features[col] = features[col].map(cat_maps[col])
+# One-Hot Encoding
+features = pd.get_dummies(features, drop_first=True)
+# Feature Scaling
+from sklearn.preprocessing import StandardScaler
+
+scaler = StandardScaler()
+features_scaled = scaler.fit_transform(features)
+#  Final Feature & Label Assignment
+X = features_scaled
+y = labels
+# Train-Test Split
+from sklearn.model_selection import train_test_split
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+#  Model Building
+from sklearn.ensemble import RandomForestClassifier
+
+model = RandomForestClassifier()
+model.fit(X_train, y_train)
+#  Evaluation
+from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+
+y_pred = model.predict(X_test)
+print("Confusion Matrix:\n", confusion_matrix(y_test, y_pred))
+print("\nClassification Report:\n", classification_report(y_test, y_pred))
+print("\nAccuracy Score:", accuracy_score(y_test, y_pred))
+#  Example Prediction
+import numpy as np
+
+example_input = np.array([X_test[0]])  # Test example
+print("Example Prediction:", model.predict(example_input)[0])
+
+# Convert to DataFrame and Encode (if taking new raw inputs)
+new_df = pd.DataFrame([features.iloc[0]]) 
+ # Use new raw input here
+new_df_scaled = scaler.transform(new_df)
+
+# Predict the Final Grade (Severity)
+final_prediction = model.predict(new_df_scaled)
+print("Final Predicted Severity:", final_prediction[0])
+
+#  Deployment - Install Gradio
+!pip install gradio --quiet
+
+# Create a Prediction Function with Encoding
+final_columns = features.columns  # store final column order
+
+def predict_severity(*inputs):
+    input_dict = {}
+    i = 0
+    for col in original_df.columns:
+        if col in cat_maps:
+            input_dict[col] = cat_maps[col].get(inputs[i], 0)
+        else:
+            input_dict[col] = float(inputs[i])
+        i += 1
+
+    # Convert to DataFrame
+    input_df = pd.DataFrame([input_dict])
+    input_df = pd.get_dummies(input_df)
+    input_df = input_df.reindex(columns=final_columns, fill_value=0)
+
+    # Scale and predict
+    input_scaled = scaler.transform(input_df)
+    prediction = model.predict(input_scaled)
+    return f"Predicted Severity: {prediction[0]}"
+
+# : Create the Gradio Interface
+import gradio as gr
+
+input_fields = []
+for col in original_df.columns:
+    if col in cat_maps:
+        choices = list(cat_maps[col].keys())
+        input_fields.append(gr.Dropdown(choices=choices, label=col))
+    else:
+        input_fields.append(gr.Number(label=col))
+
+gr.Interface(
+    fn=predict_severity,
+    inputs=input_fields,
+    outputs="text",
+    title="Traffic Accident Severity Predictor"
+).launch(share=True)
+
+
+
